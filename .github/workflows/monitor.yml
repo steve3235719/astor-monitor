@@ -1,0 +1,54 @@
+name: VCSO Astor/Osteen Monitor
+
+   on:
+     schedule:
+       - cron: '*/5 * * * *'
+     workflow_dispatch:
+       inputs:
+         test:
+           description: 'Send a test push and stop'
+           type: boolean
+           default: false
+
+   permissions:
+     contents: write
+
+   concurrency:
+     group: vcso-monitor
+     cancel-in-progress: false
+
+   jobs:
+     check:
+       runs-on: ubuntu-latest
+       steps:
+         - uses: actions/checkout@v4
+
+         - uses: actions/setup-python@v5
+           with:
+             python-version: '3.12'
+
+         - name: Install dependencies
+           run: pip install -r requirements.txt
+
+         - name: Send test push
+           if: ${{ github.event_name == 'workflow_dispatch' && inputs.test }}
+           env:
+             EXPO_TOKENS: ${{ secrets.EXPO_TOKENS }}
+           run: python vcso_monitor.py --test
+
+         - name: Check for new Astor/Osteen calls
+           if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test) }}
+           env:
+             EXPO_TOKENS: ${{ secrets.EXPO_TOKENS }}
+           run: python vcso_monitor.py --once
+
+         - name: Remember which calls were seen
+           if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.test) }}
+           run: |
+             if [ -n "$(git status --porcelain seen_calls.json)" ]; then
+               git config user.name "vcso-bot"
+               git config user.email "vcso-bot@users.noreply.github.com"
+               git add seen_calls.json
+               git commit -m "Update seen calls"
+               git push
+             fi
